@@ -16,6 +16,17 @@ def task(name, status='completed'):
 
 
 class Tests(unittest.TestCase):
+    def test_executable_environment_override(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / 'ZCode.exe'
+            executable.write_bytes(b'fixture')
+            with patch.dict(backend.os.environ, {'ZCODE_EXE': str(executable)}):
+                self.assertEqual(backend.find_zcode_executable(), executable)
+
+    def test_no_installation_does_not_return_a_directory(self):
+        with patch.dict(backend.os.environ, {}, clear=True), patch.object(backend.shutil, 'which', return_value=None), patch.object(backend.os, 'name', 'posix'):
+            self.assertIsNone(backend.find_zcode_executable())
+
     def make_runner(self, rows, immediate=False, limit=20):
         entries = [{'task': task('a'), 'modelSelection': {'providerId': 'minimax', 'modelId': 'MiniMax-M3'}},
                    {'task': task('b'), 'modelSelection': {'providerId': 'xiaomi-mimo', 'modelId': 'mimo-v2.6-pro'}}]

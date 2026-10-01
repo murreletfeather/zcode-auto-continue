@@ -7,9 +7,10 @@ import threading
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import auto_continue as backend
 
+VERSION = '0.1.0'
 CONFIG = backend.SETTINGS.with_name('settings.multi.json')
 
 
@@ -145,7 +146,7 @@ class MonitorRunner:
 class App:
     def __init__(self, root):
         self.root = root
-        root.title('ZCode 自动继续 · 多对话与模型选择')
+        root.title('ZCode 自动继续 · 多对话与模型选择 v' + VERSION)
         root.geometry('1120x760')
         root.minsize(880, 620)
         self.events = queue.Queue()
@@ -160,13 +161,15 @@ class App:
             config = {'entries': []}
             self.log('配置读取失败，未自动选取目标：' + str(exc))
         self.entries = config.get('entries', [])
+        if config.get('zcode_exe'):
+            backend.EXE = Path(config['zcode_exe'])
         box = ttk.Frame(root, padding=12)
         box.pack(fill='both', expand=True)
         ttk.Label(box, text='每个对话独立选择模型；只在成功完成后续发，运行中与错误状态不发送。').pack(anchor='w')
         controls = ttk.Frame(box)
         controls.pack(fill='x', pady=8)
         for title, command in [('以本地接口模式打开 ZCode', self.launch),
-                               ('刷新对话', self.refresh), ('读取可用模型', self.fetch_models)]:
+                               ('选择 ZCode 路径', self.choose_executable), ('刷新对话', self.refresh), ('读取可用模型', self.fetch_models)]:
             ttk.Button(controls, text=title, command=command).pack(side='left', padx=3)
         self.search = tk.StringVar()
         ttk.Label(controls, text='筛选对话：').pack(side='left', padx=8)
@@ -379,7 +382,8 @@ class App:
             if not math.isfinite(interval) or interval < 1 or limit < 0:
                 raise ValueError('间隔至少 1 秒，上限必须为非负整数')
             save_config({'entries': self.entries, 'interval': interval, 'limit': limit,
-                         'immediate': self.immediate.get(), 'autostart': self.autostart.get()})
+                         'immediate': self.immediate.get(), 'autostart': self.autostart.get(),
+                         'zcode_exe': str(backend.EXE) if backend.EXE.is_file() else None})
             return True
         except Exception as exc:
             self.log('保存失败：' + str(exc))
@@ -412,9 +416,22 @@ class App:
             return
         self.start()
 
+    def choose_executable(self):
+        if not self.editable(): return False
+        filename = filedialog.askopenfilename(title='选择 ZCode.exe',
+                    filetypes=[('ZCode executable', 'ZCode.exe'), ('Windows executable', '*.exe')])
+        if not filename: return False
+        path = Path(filename)
+        if not path.is_file() or path.name.lower() != 'zcode.exe':
+            messagebox.showerror('路径无效', '请选择 ZCode 安装目录中的 ZCode.exe。')
+            return False
+        backend.EXE = path
+        self.save()
+        self.log('已保存 ZCode 安装路径。')
+        return True
+
     def launch(self):
-        if not backend.EXE.exists():
-            messagebox.showerror('找不到 ZCode', str(backend.EXE))
+        if not backend.EXE.is_file() and not self.choose_executable():
             return
         result = backend.subprocess.run(['tasklist', '/FI', 'IMAGENAME eq ZCode.exe', '/FO', 'CSV'],
                                         capture_output=True, text=True, creationflags=0x08000000)
@@ -431,6 +448,16 @@ class App:
 
 
 if __name__ == '__main__':
-    root = tk.Tk()
-    App(root)
-    root.mainloop()
+    import sys
+    if len(sys.argv) == 3 and sys.argv[1] == '--self-test':
+        # 发布包冒烟检查仅验证运行库，不读取对话，也不提交任务。
+        root = tk.Tk()
+        root.withdraw()
+        root.update_idletasks()
+        root.destroy()
+        Path(sys.argv[2]).write_text(json.dumps({'version': VERSION, 'tkinter': True,
+                                              'websocket': True, 'sqlite': True}), encoding='utf8')
+    else:
+        root = tk.Tk()
+        App(root)
+        root.mainloop()

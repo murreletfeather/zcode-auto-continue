@@ -1,4 +1,4 @@
-import hashlib, json, sys, sqlite3, subprocess, time, uuid, threading, queue
+import hashlib, json, os, shutil, sys, sqlite3, subprocess, time, uuid, threading, queue
 from pathlib import Path
 from urllib.request import urlopen
 import tkinter as tk
@@ -6,7 +6,34 @@ from tkinter import ttk, messagebox
 import websocket
 DB=Path.home()/'.zcode/v2/tasks-index.sqlite'
 PORT=19387
-EXE=Path(r'D:\m_Applications\ZCode\ZCode.exe')
+def find_zcode_executable():
+ candidates=[]
+ explicit=os.environ.get('ZCODE_EXE')
+ if explicit:candidates.append(Path(explicit))
+ executable=shutil.which('ZCode.exe')
+ if executable:candidates.append(Path(executable))
+ for variable,suffix in [('LOCALAPPDATA','Programs/ZCode/ZCode.exe'),('ProgramFiles','ZCode/ZCode.exe'),('ProgramFiles(x86)','ZCode/ZCode.exe')]:
+  base=os.environ.get(variable)
+  if base:candidates.append(Path(base)/suffix)
+ if os.name=='nt':
+  import winreg
+  for hive in (winreg.HKEY_CURRENT_USER,winreg.HKEY_LOCAL_MACHINE):
+   for registry_path in (r'Software\Microsoft\Windows\CurrentVersion\Uninstall',r'Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'):
+    try:
+     with winreg.OpenKey(hive,registry_path)as parent:
+      for index in range(winreg.QueryInfoKey(parent)[0]):
+       try:
+        with winreg.OpenKey(parent,winreg.EnumKey(parent,index))as key:
+         name=winreg.QueryValueEx(key,'DisplayName')[0]
+         if str(name).lower()!='zcode':continue
+         try:candidates.append(Path(winreg.QueryValueEx(key,'InstallLocation')[0])/'ZCode.exe')
+         except OSError:pass
+         try:candidates.append(Path(winreg.QueryValueEx(key,'DisplayIcon')[0].rsplit(',',1)[0].strip('"')))
+         except OSError:pass
+       except OSError:continue
+    except OSError:continue
+ return next((candidate for candidate in candidates if candidate.is_file()),None)
+EXE=find_zcode_executable()or Path('ZCode.exe')
 SETTINGS=Path.home()/'Documents/ZCodeAutoContinue/settings.json'
 def load_target():
  try:return json.loads(SETTINGS.read_text(encoding='utf8')).get('target')
@@ -130,7 +157,7 @@ class App:
    if self.saved_target and not chosen:self.log('保存的目标不存在或已归档，不会自动切换到其他对话。')
   except Exception as e:self.log('读取失败：'+str(e))
  def launch(self):
-  if not EXE.exists():messagebox.showerror('路径错误',str(EXE));return
+  if not EXE.is_file():messagebox.showerror('路径错误',str(EXE));return
   r=subprocess.run(['tasklist','/FI','IMAGENAME eq ZCode.exe','/FO','CSV'],capture_output=True,text=True,creationflags=0x08000000)
   if 'zcode.exe'in r.stdout.lower():messagebox.showinfo('请先退出 ZCode','请先正常退出 ZCode，本工具不会强行终止任务。');return
   subprocess.Popen([str(EXE),f'--remote-debugging-port={PORT}','--remote-debugging-address=127.0.0.1'],creationflags=0x08000000)
