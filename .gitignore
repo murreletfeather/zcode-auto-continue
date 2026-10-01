@@ -1,0 +1,17 @@
+# 本地运行与构建产物
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.spec
+# 对话身份、诊断数据和任何本地凭据
+settings*.json
+model-view*.json
+.env
+.env.*
+*.log
+*.sqlite*
+credentials*.json
+provider_config*.json
